@@ -74,10 +74,18 @@ __docformat__ = 'restructuredtext en'
 
 DEFAULT = object()
 
+import inspect
+def get_call_mod():
+    """
+    Get the module where function was called
+    """
+    frm = inspect.stack()[2]
+    mod = inspect.getmodule(frm[0])
+    return mod
 
 class Field(object):
     """Basic unit for mapping a piece of data between Python and JSON.
-    
+
     Instances of this class can be added to subclasses of `Document` to describe
     the mapping of a document.
     """
@@ -188,7 +196,7 @@ class Mapping(object):
 class ViewField(object):
     r"""Descriptor that can be used to bind a view definition to a property of
     a `Document` class.
-    
+
     >>> class Person(Document):
     ...     name = TextField()
     ...     age = IntegerField()
@@ -198,20 +206,20 @@ class ViewField(object):
     ...         }''')
     >>> Person.by_name
     <ViewDefinition '_design/people/_view/by_name'>
-    
+
     >>> print Person.by_name.map_fun
     function(doc) {
         emit(doc.name, doc);
     }
-    
+
     That property can be used as a function, which will execute the view.
-    
+
     >>> from couchdb import Database
     >>> db = Database('python-tests')
-    
+
     >>> Person.by_name(db, count=3)
     <ViewResults <PermanentView '_design/people/_view/by_name'> {'count': 3}>
-    
+
     The results produced by the view are automatically wrapped in the
     `Document` subclass the descriptor is bound to. In this example, it would
     return instances of the `Person` class. But please note that this requires
@@ -219,10 +227,10 @@ class ViewField(object):
     mapping defined by the containing `Document` class. Alternatively, the
     ``include_docs`` query option can be used to inline the actual documents in
     the view results, which will then be used instead of the values.
-    
+
     If you use Python view functions, this class can also be used as a
     decorator:
-    
+
     >>> class Person(Document):
     ...     name = TextField()
     ...     age = IntegerField()
@@ -230,7 +238,7 @@ class ViewField(object):
     ...     @ViewField.define('people')
     ...     def by_name(doc):
     ...         yield doc['name'], doc
-    
+
     >>> Person.by_name
     <ViewDefinition '_design/people/_view/by_name'>
 
@@ -242,7 +250,7 @@ class ViewField(object):
     def __init__(self, design, map_fun, reduce_fun=None, name=None,
                  language='javascript', wrapper=DEFAULT, **defaults):
         """Initialize the view descriptor.
-        
+
         :param design: the name of the design document
         :param map_fun: the map function code
         :param reduce_fun: the reduce function code (optional)
@@ -292,14 +300,59 @@ class DocumentMeta(MappingMeta):
         return MappingMeta.__new__(cls, name, bases, d)
 
 
-class Document(Mapping):
+class DocumentSchema(Mapping, Field):
     __metaclass__ = DocumentMeta
+
+    id = None
+    name = None
+    default = None
+
+    def _to_json(self, value):
+        return value._data
 
     def __init__(self, id=None, **values):
         Mapping.__init__(self, **values)
         if id is not None:
             self.id = id
 
+    def items(self):
+        """Return the fields as a list of ``(name, value)`` tuples.
+
+        This method is provided to enable easy conversion to native dictionary
+        objects, for example to allow use of `mapping.Document` instances with
+        `client.Database.update`.
+
+        >>> class Post(Document):
+        ...     title = TextField()
+        ...     author = TextField()
+        >>> post = Post(id='foo-bar', title='Foo bar', author='Joe')
+        >>> sorted(post.items())
+        [('_id', 'foo-bar'), ('author', u'Joe'), ('title', u'Foo bar')]
+
+        :return: a list of ``(name, value)`` tuples
+        """
+        retval = []
+        if self.id is not None:
+            retval.append(('_id', self.id))
+            if self.rev is not None:
+                retval.append(('_rev', self.rev))
+        for name, value in self._data.items():
+            if name not in ('_id', '_rev'):
+                retval.append((name, value))
+        return retval
+
+    @classmethod
+    def _wrap_row(cls, row):
+        doc = row.get('doc')
+        if doc is not None:
+            return cls.wrap(doc)
+        data = row['value']
+        data['_id'] = row['id']
+        return cls.wrap(data)
+
+
+class Document(DocumentSchema):
+    __metaclass__ = DocumentMeta
     def __repr__(self):
         return '<%s %r@%r %r>' % (type(self).__name__, self.id, self.rev,
                                   dict([(k, v) for k, v in self._data.items()
@@ -318,43 +371,17 @@ class Document(Mapping):
     @property
     def rev(self):
         """The document revision.
-        
+
         :rtype: basestring
         """
         if hasattr(self._data, 'rev'): # When data is client.Document
             return self._data.rev
         return self._data.get('_rev')
 
-    def items(self):
-        """Return the fields as a list of ``(name, value)`` tuples.
-        
-        This method is provided to enable easy conversion to native dictionary
-        objects, for example to allow use of `mapping.Document` instances with
-        `client.Database.update`.
-        
-        >>> class Post(Document):
-        ...     title = TextField()
-        ...     author = TextField()
-        >>> post = Post(id='foo-bar', title='Foo bar', author='Joe')
-        >>> sorted(post.items())
-        [('_id', 'foo-bar'), ('author', u'Joe'), ('title', u'Foo bar')]
-        
-        :return: a list of ``(name, value)`` tuples
-        """
-        retval = []
-        if self.id is not None:
-            retval.append(('_id', self.id))
-            if self.rev is not None:
-                retval.append(('_rev', self.rev))
-        for name, value in self._data.items():
-            if name not in ('_id', '_rev'):
-                retval.append((name, value))
-        return retval
-
     @classmethod
     def load(cls, db, id):
         """Load a specific document from the given database.
-        
+
         :param db: the `Database` object to retrieve the document from
         :param id: the document ID
         :return: the `Document` instance, or `None` if no document with the
@@ -374,7 +401,7 @@ class Document(Mapping):
     def query(cls, db, map_fun, reduce_fun, language='javascript', **options):
         """Execute a CouchDB temporary view and map the result values back to
         objects of this mapping.
-        
+
         Note that by default, any properties of the document that are not
         included in the values of the view will be treated as if they were
         missing from the document. If you want to load the full document for
@@ -387,22 +414,13 @@ class Document(Mapping):
     def view(cls, db, viewname, **options):
         """Execute a CouchDB named view and map the result values back to
         objects of this mapping.
-        
+
         Note that by default, any properties of the document that are not
         included in the values of the view will be treated as if they were
         missing from the document. If you want to load the full document for
         every row, set the ``include_docs`` option to ``True``.
         """
         return db.view(viewname, wrapper=cls._wrap_row, **options)
-
-    @classmethod
-    def _wrap_row(cls, row):
-        doc = row.get('doc')
-        if doc is not None:
-            return cls.wrap(doc)
-        data = row['value']
-        data['_id'] = row['id']
-        return cls.wrap(data)
 
 
 class TextField(Field):
@@ -442,7 +460,7 @@ class DecimalField(Field):
 
 class DateField(Field):
     """Mapping field for storing dates.
-    
+
     >>> field = DateField()
     >>> field._to_python('2007-04-01')
     datetime.date(2007, 4, 1)
@@ -468,7 +486,7 @@ class DateField(Field):
 
 class DateTimeField(Field):
     """Mapping field for storing date/time values.
-    
+
     >>> field = DateTimeField()
     >>> field._to_python('2007-04-01T15:30:00Z')
     datetime.datetime(2007, 4, 1, 15, 30)
@@ -498,7 +516,7 @@ class DateTimeField(Field):
 
 class TimeField(Field):
     """Mapping field for storing times.
-    
+
     >>> field = TimeField()
     >>> field._to_python('15:30:00')
     datetime.time(15, 30)
@@ -525,7 +543,7 @@ class TimeField(Field):
 
 class DictField(Field):
     """Field type for nested dictionaries.
-    
+
     >>> from couchdb import Server
     >>> server = Server()
     >>> db = server.create('python-tests')
@@ -557,23 +575,55 @@ class DictField(Field):
 
     >>> del server['python-tests']
     """
-    def __init__(self, mapping=None, name=None, default=None):
+    def __init__(self, mapping=None, name=None, default=None, schema=None):
         default = default or {}
         Field.__init__(self, name=name, default=lambda: default.copy())
         self.mapping = mapping
+        self._call_module = get_call_mod()
+        self._schema = schema
+
+    @property
+    def schema(self):
+        if self._call_module and isinstance(self._schema, basestring):
+            schema = getattr(self._call_module, self._schema, None)
+            if schema:
+                schema = self._schema = schema()
+            return schema
+        return self._schema
 
     def _to_python(self, value):
-        if self.mapping is None:
+        if self.schema:
+            return self.Proxy(value, self.schema)
+        elif self.mapping is None:
             return value
         else:
             return self.mapping.wrap(value)
 
     def _to_json(self, value):
+        if self.schema:
+            return value
         if self.mapping is None:
             return value
         if not isinstance(value, Mapping):
             value = self.mapping(**value)
         return value.unwrap()
+
+    class Proxy(dict):
+        def __init__(self, d, schema):
+            dict.__init__(self, d)
+            self.dict = d
+            self.schema = schema
+
+        def __setitem__(self, key, value):
+            if isinstance(value, self.schema.__class__):
+                value = value.unwrap()
+            self.dict.__setitem__(key, value)
+
+        def __getitem__(self, key):
+            value = self.dict.__getitem__(key)
+            if not isinstance(value, self.schema.__class__):
+                value = self.schema.wrap(value)
+            return value
 
 
 class ListField(Field):
@@ -615,19 +665,32 @@ class ListField(Field):
     def __init__(self, field, name=None, default=None):
         default = default or []
         Field.__init__(self, name=name, default=lambda: copy.copy(default))
+
+        self._call_module = None
         if type(field) is type:
             if issubclass(field, Field):
                 field = field()
             elif issubclass(field, Mapping):
                 field = DictField(field)
-        self.field = field
+        elif isinstance(field, basestring):
+            self._call_module = get_call_mod()
+
+        self._field = field
+
+    @property
+    def field(self):
+        if self._call_module and isinstance(self._field, basestring):
+            field = getattr(self._call_module, self._field, None)
+            if field:
+                field = self._field = field()
+            return field
+        return self._field
 
     def _to_python(self, value):
         return self.Proxy(value, self.field)
 
     def _to_json(self, value):
         return [self.field._to_json(item) for item in value]
-
 
     class Proxy(list):
 
