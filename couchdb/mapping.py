@@ -308,6 +308,8 @@ class DocumentSchema(Mapping, Field):
     default = None
 
     def _to_json(self, value):
+        if type(value) is dict:
+             return value
         return value._data
 
     def __init__(self, id=None, **values):
