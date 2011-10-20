@@ -25,6 +25,7 @@ False
 
 import mimetypes
 import os
+import hashlib
 from types import FunctionType
 from inspect import getsource
 from textwrap import dedent
@@ -210,16 +211,59 @@ class Server(object):
         """
         del self[name]
 
-    def replicate(self, source, target, **options):
+    def replicate(self, source, target, to_db=False, **options):
         """Replicate changes from the source database to the target database.
 
         :param source: URL of the source database
         :param target: URL of the target database
+        :param to_db: Boolean that if True, make a database replication
         :param options: optional replication args, e.g. continuous=True
         """
+        if to_db:
+            dbname = '_replicator'
+        else:
+            dbname = '_replicate'
+
         data = {'source': source, 'target': target}
         data.update(options)
-        status, headers, data = self.resource.post_json('_replicate', data)
+        status, headers, data = self.resource.post_json(dbname, data)
+        return data
+
+    def add_user(self, username, password, roles=None):
+        """Add a user to the server
+
+        :param username: Name of the user
+        :param password: Password of the user
+        :param roles: List of roles
+        """
+
+        if not roles:
+            roles = []
+
+        pass_hash = hashlib.sha1()
+
+        salt = os.urandom(16).encode('hex')
+        pass_hash.update(password)
+        pass_hash.update(salt)
+
+        password = pass_hash.hexdigest()
+
+        data = {'_id': 'org.couchdb.user:'+username,'name': username,
+                'password_sha': password, 'roles': roles,
+                'salt': salt, 'type': 'user'}
+        status, headers, data = self.resource.post_json('_users', data)
+        return data
+
+    def del_user(self, username):
+        """Revmove an user from the server
+
+        :param username: Name of the user to delete
+        """
+        resource = self.resource('_users')
+        resource = resource('org.couchdb.user:'+username)
+        status, headers, data = resource.head()
+        status, headers, data = resource.delete_json(
+                        rev=headers['etag'].strip('"'))
         return data
 
 
@@ -341,7 +385,10 @@ class Database(object):
         """
         resource = _doc_resource(self.resource, id)
         status, headers, data = resource.put_json(body=content)
-        content.update({'_id': data['id'], '_rev': data['rev']})
+        # if it's a _security document it doesn't have id
+        _id = data.get('id', None)
+        _rev = data.get('rev', None)
+        content.update({'_id': _id, '_rev': _rev})
 
     @property
     def name(self):
@@ -415,7 +462,8 @@ class Database(object):
         else:
             func = self.resource.post_json
         _, _, data = func(body=doc, **options)
-        id, rev = data['id'], data.get('rev')
+        #  if it's a _security document it doesn't have id
+        id, rev = data.get('id', None), data.get('rev', None)
         doc['_id'] = id
         if rev is not None: # Not present for batch='ok'
             doc['_rev'] = rev
