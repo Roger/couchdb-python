@@ -343,12 +343,16 @@ class Session(object):
             data = resp.read()
             self._return_connection(url, conn)
 
-        # For large or chunked response bodies, do not buffer the full body,
+        # For chunked response bodies, do not buffer the full body,
         # and instead return a minimal file-like object
-        else:
+        elif resp.msg.get('transfer-encoding') == 'chunked':
             data = ResponseBody(resp,
                                 lambda: self._return_connection(url, conn))
             streamed = True
+        else:
+            # For everything else, read all data
+            data = resp.read()
+            self._return_connection(url, conn)
 
         # Handle errors
         if status >= 400:
