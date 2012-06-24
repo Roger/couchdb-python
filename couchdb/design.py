@@ -237,8 +237,10 @@ class ViewDefinition(DesignDefinition):
         """
         merged_options = self.defaults.copy()
         merged_options.update(options)
-        return db.view('/'.join([self.design, self.name]),
-                       wrapper=self.wrapper, **merged_options)
+        # replace default wrapper if the view is called with a new wrapper
+        if "wrapper" not in  merged_options:
+            merged_options["wrapper"] = self.wrapper
+        return db.view('/'.join([self.design, self.name]), **merged_options)
 
 class FilterDefinition(DesignDefinition):
     def __init__(self, design, name, filter_fun, language='javascript',
