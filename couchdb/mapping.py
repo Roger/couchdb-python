@@ -90,9 +90,10 @@ class Field(object):
     the mapping of a document.
     """
 
-    def __init__(self, name=None, default=None):
+    def __init__(self, name=None, default=None, valid=None):
         self.name = name
         self.default = default
+        self.valid = valid or []
 
     def __get__(self, instance, owner):
         if instance is None:
@@ -110,6 +111,8 @@ class Field(object):
     def __set__(self, instance, value):
         if value is not None:
             value = self._to_json(value)
+            if self.valid and not value in self.valid:
+                raise ValueError("Value '%s' not in %s" % (value, self.values))
         instance._data[self.name] = value
 
     def _to_python(self, value):
@@ -192,7 +195,6 @@ class Mapping(object):
     def _to_json(self, value):
         return self.unwrap()
 
-
 class ViewField(object):
     r"""Descriptor that can be used to bind a view definition to a property of
     a `Document` class.
@@ -248,7 +250,7 @@ class ViewField(object):
     """
 
     def __init__(self, design, map_fun, reduce_fun=None, name=None,
-                 language='javascript', wrapper=DEFAULT, **defaults):
+             language='javascript', wrapper=DEFAULT, raw_path='', **defaults):
         """Initialize the view descriptor.
 
         :param design: the name of the design document
@@ -261,12 +263,14 @@ class ViewField(object):
                         result rows
         :param defaults: default query string parameters to apply
         """
+
         self.design = design
         self.name = name
         self.map_fun = map_fun
         self.reduce_fun = reduce_fun
         self.language = language
         self.wrapper = wrapper
+        self.raw_path = raw_path
         self.defaults = defaults
 
     @classmethod
@@ -287,7 +291,8 @@ class ViewField(object):
             wrapper = self.wrapper
         return ViewDefinition(self.design, self.name, self.map_fun,
                               self.reduce_fun, language=self.language,
-                              wrapper=wrapper, **self.defaults)
+                              wrapper=wrapper, raw_path=self.raw_path,
+                              **self.defaults)
 
 
 class DocumentMeta(MappingMeta):

@@ -15,14 +15,14 @@ from operator import attrgetter
 from textwrap import dedent
 from types import FunctionType
 
-__all__ = ['ViewDefinition']
+__all__ = ['ViewDefinition', 'FilterDefinition']
 __docformat__ = 'restructuredtext en'
 
 
 class DesignDefinition(object):
     def __init__(self, design, name, map_fun=None, reduce_fun=None,
                  language='javascript', options=None,
-                 filter_fun=None, **defaults):
+                 filter_fun=None, raw_path='', **defaults):
         """Initialize the design definition.
 
         Note that the code in `map_fun` and `reduce_fun` is automatically
@@ -38,14 +38,20 @@ class DesignDefinition(object):
         :param wrapper: an optional callable that should be used to wrap the
                         result rows
         :param options: view specific options (e.g. {'collation':'raw'})
+        :param raw_path: function path (e.g. 'fulltext/by_field/index')
         """
         if design.startswith('_design/'):
             design = design[8:]
         self.design = design
         self.name = name
+        self.raw_path = raw_path
 
         # Must have a map or filter
         assert not (map_fun is None and filter_fun is None)
+
+        # If raw_path is set, must have only map_fun and must be set
+        assert not ((raw_path and not map_fun) or
+                    (raw_path and filter_fun and map_fun))
 
         # set map function
         if isinstance(map_fun, FunctionType):
@@ -73,8 +79,9 @@ class DesignDefinition(object):
         self.defaults = defaults
 
     def __repr__(self):
+        name = self.raw_path and self.raw_path or self.name
         return '<%s %r>' % (type(self).__name__, '/'.join([
-            '_design', self.design, '_view', self.name
+            '_design', self.design, '_view', name
         ]))
 
     def get_doc(self, db):
@@ -129,23 +136,43 @@ class DesignDefinition(object):
             missing_filters = list(doc.get('filters', {}).keys())
             for view in views:
                 funcs = {}
-                if view.map_fun:
-                    funcs['map'] = view.map_fun
-                if view.reduce_fun:
-                    funcs['reduce'] = view.reduce_fun
+                if view.raw_path:
+                    new_dict = doc
+                    raw_path = view.raw_path
+                    if "/" in raw_path:
+                        (raw_path, func_name) = raw_path.rsplit("/", 1)
+
+                        # splits the path and generate a dict with each part
+                        # as a key of the next
+                        # ie. path, "a/b/c" becomes {'a': {'b': {'c': {}}}}
+                        for part in raw_path.split("/"):
+                            new_dict.setdefault(part, {})
+                            new_dict = new_dict[part]
+                    else:
+                        func_name = raw_path
+                    new_dict[func_name] = view.map_fun
+                    if view.name in missing_views:
+                        missing_views.remove(view.name)
+                else:
+                    if view.map_fun:
+                        funcs['map'] = view.map_fun
+
+                    if view.reduce_fun:
+                        funcs['reduce'] = view.reduce_fun
+
+                    if view.filter_fun:
+                        #funcs[view.name] = view.filter_fun
+                        if view.name in missing_filters:
+                            missing_filters.remove(view.name)
+                        doc.setdefault('filters', {})[view.name] = view.filter_fun
+                    else:
+                        if view.name in missing_views:
+                            missing_views.remove(view.name)
+                        doc.setdefault('views', {})[view.name] = funcs
 
                 if view.options:
                     funcs['options'] = view.options
 
-                if view.filter_fun:
-                    #funcs[view.name] = view.filter_fun
-                    if view.name in missing_filters:
-                        missing_filters.remove(view.name)
-                    doc.setdefault('filters', {})[view.name] = view.filter_fun
-                else:
-                    if view.name in missing_views:
-                        missing_views.remove(view.name)
-                    doc.setdefault('views', {})[view.name] = funcs
                 languages.add(view.language)
 
             if remove_missing:
@@ -221,10 +248,10 @@ class ViewDefinition(DesignDefinition):
     """
 
     def __init__(self, design, name, map_fun, reduce_fun=None,
-                 language='javascript', wrapper=None, options=None,
-                 **defaults):
-        DesignDefinition.__init__(self, design, name, map_fun,
-                reduce_fun, language, options, **defaults)
+            language='javascript', wrapper=None, options=None,
+            raw_path='', **defaults):
+        DesignDefinition.__init__(self, design, name, map_fun, reduce_fun,
+                language, options, raw_path=raw_path, **defaults)
         self.wrapper = wrapper
 
     def __call__(self, db, **options):
