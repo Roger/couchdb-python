@@ -429,6 +429,13 @@ class Document(DocumentSchema):
         """
         return db.view(viewname, wrapper=cls._wrap_row, **options)
 
+    # Document it's not a property
+    # needed fix when used as a class attribute
+    def __get__(self, instance, owner):
+        return self
+
+    def __set__(self, key, value):
+        self.__dict__[key] = value
 
 class TextField(Field):
     """Mapping field for string values."""
