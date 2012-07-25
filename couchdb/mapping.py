@@ -318,6 +318,7 @@ class DocumentSchema(Mapping, Field):
         return value._data
 
     def __init__(self, id=None, **values):
+        self.valid = []
         Mapping.__init__(self, **values)
         if id is not None:
             self.id = id
