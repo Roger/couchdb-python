@@ -211,6 +211,55 @@ class ListFieldTestCase(testutil.TempDatabaseMixin, unittest.TestCase):
         thing2 = Thing(id='thing2')
         self.assertEqual([i for i in thing2.numbers], [])
 
+class DocumentSchemaFieldTestCase(testutil.TempDatabaseMixin, unittest.TestCase):
+    def test_simple(self):
+        class OtherThing(mapping.DocumentSchema):
+            text = mapping.TextField()
+        class Thing(mapping.Document):
+            other = OtherThing()
+        thing = Thing.wrap({"_id": 42, "_rev": 1, "other":{"text": "something"}})
+        self.assertEqual(thing.other.text, "something")
+
+        thing = Thing()
+        thing.other = OtherThing()
+        thing.other.text = "something"
+        self.assertEqual(thing.unwrap(), {"other":{"text": "something"}})
+
+    def test_list(self):
+        class OtherThing(mapping.DocumentSchema):
+            text = mapping.TextField()
+        class Thing(mapping.Document):
+            other = mapping.ListField(OtherThing())
+        thing = Thing.wrap({"_id": 42, "_rev": 1,
+                    "other":[{"text": "something"}, {"text": "other thing"}]})
+        self.assertEqual(thing.other[0].text, "something")
+        self.assertEqual(thing.other[1].text, "other thing")
+
+        thing = Thing()
+        thing.other.append(OtherThing(text="one"))
+        thing.other.append(OtherThing(text="two"))
+        self.assertEqual(thing.unwrap(),
+            {"other":[{"text": "one"}, {"text": "two"}]})
+
+    def test_dict(self):
+        class OtherThing(mapping.DocumentSchema):
+            text = mapping.TextField()
+        class Thing(mapping.Document):
+            other = mapping.DictField(schema=OtherThing())
+        thing = Thing.wrap({"_id": 42, "_rev": 1,
+            "other": {
+                "a": {"text": "something"},
+                "b": {"text": "other thing"}
+                }
+            })
+        self.assertEqual(thing.other["a"]["text"], "something")
+        self.assertEqual(thing.other["b"]["text"], "other thing")
+
+        thing = Thing()
+        thing.other["a"] = OtherThing(text="one")
+        thing.other["b"] = OtherThing(text="two")
+        self.assertEqual(thing.unwrap(), {"other":
+            {"a": {"text": "one"}, "b": {"text": "two"}}})
 
 all_map_func = 'function(doc) { emit(doc._id, doc); }'
 
@@ -256,6 +305,7 @@ def suite():
     suite.addTest(doctest.DocTestSuite(mapping))
     suite.addTest(unittest.makeSuite(DocumentTestCase, 'test'))
     suite.addTest(unittest.makeSuite(ListFieldTestCase, 'test'))
+    suite.addTest(unittest.makeSuite(DocumentSchemaFieldTestCase, 'test'))
     suite.addTest(unittest.makeSuite(WrappingTestCase, 'test'))
     return suite
 
