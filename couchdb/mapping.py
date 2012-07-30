@@ -604,6 +604,7 @@ class DictField(Field):
             if schema:
                 schema = self._schema = schema()
             return schema
+        assert not isinstance(self._schema, type), "Schema is not an instance!"
         return self._schema
 
     def _to_python(self, value):
