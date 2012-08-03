@@ -569,7 +569,7 @@ class Database(object):
         >>> db.delete(doc)
         Traceback (most recent call last):
           ...
-        ResourceConflict: ('conflict', 'Document update conflict.')
+        ResourceConflict: (u'conflict', u'Document update conflict.')
 
         >>> del server['python-tests']
 
