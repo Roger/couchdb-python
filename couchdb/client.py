@@ -716,6 +716,10 @@ class Database(object):
         }, rev=doc['_rev'])
         doc['_rev'] = data['rev']
 
+        if doc.get('_attachments', {}).get(filename, {}).get('revpos'):
+            revpos = int(data['rev'].split('-')[0])
+            doc['_attachments'][filename]['revpos'] = revpos
+
     def query(self, map_fun, reduce_fun=None, language='javascript',
               wrapper=None, **options):
         """Execute an ad-hoc query (a "temp view") against the database.
