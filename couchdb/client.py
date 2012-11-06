@@ -932,10 +932,15 @@ class Database(object):
         return headers, body
 
     def _changes(self, **opts):
+        opts.setdefault('yield_beats', False)
+        yield_beats = opts.pop('yield_beats')
+
         _, _, data = self.resource.get('_changes', **opts)
         lines = iter(data)
         for ln in lines:
             if not ln: # skip heartbeats
+                if yield_beats:
+                    yield {}
                 continue
             doc = json.decode(ln)
             if 'last_seq' in doc: # consume the rest of the response if this
