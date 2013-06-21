@@ -105,7 +105,8 @@ class Field(object):
             default = self.default
             if callable(default):
                 default = default()
-            value = default
+            value = self._to_python(default)
+            instance._data[self.name] = value
         return value
 
     def __set__(self, instance, value):
