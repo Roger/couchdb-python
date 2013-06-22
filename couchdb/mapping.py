@@ -319,8 +319,8 @@ class DocumentSchema(Mapping, Field):
 
     def _to_json(self, value):
         if type(value) is dict:
-             return value
-        return value._data
+            return value
+        return getattr(value, "_data", value)
 
     def __init__(self, id=None, **values):
         self.valid = []
