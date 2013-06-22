@@ -108,7 +108,9 @@ class Field(object):
             value = instance._data[self.name] = default
             # TODO: workaround to fix DictField setitem
             if type(value) is not dict:
-                value = self._to_python(value)
+                proxy = getattr(self, "Proxy", None)
+                if proxy:
+                    value = proxy(value, instance)
         return value
 
     def __set__(self, instance, value):
