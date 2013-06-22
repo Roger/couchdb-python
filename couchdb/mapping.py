@@ -105,8 +105,10 @@ class Field(object):
             default = self.default
             if callable(default):
                 default = default()
-            value = self._to_python(default)
-            instance._data[self.name] = value
+            value = instance._data[self.name] = default
+            # TODO: workaround to fix DictField setitem
+            if type(value) is not dict:
+                value = self._to_python(value)
         return value
 
     def __set__(self, instance, value):
